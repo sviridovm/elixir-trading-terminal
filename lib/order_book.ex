@@ -1,5 +1,6 @@
 defmodule OrderBook do
   use Agent
+  require Update
   alias OrderBook.State
 
   def start_link(product_id) do
@@ -16,12 +17,26 @@ defmodule OrderBook do
     )
   end
 
-  def remove_order(product_id, order_id) do
+  def apply_snapshot(product_id, updates)
+    when is_binary(product_id)
+    and is_list(updates)
+  do
     Agent.update(
       via(product_id),
-      &State.remove_order(&1, order_id)
+      State.new(updates)
     )
   end
+
+  def apply_update(product_id, update)
+    when Update.is_update(update)
+    and is_binary(product_id)
+  do
+    Agent.update(
+      via(product_id),
+      &State.apply_update(&1, update)
+    )
+  end
+
 
   def get_bids(product_id) do
     Agent.get(
@@ -38,6 +53,7 @@ defmodule OrderBook do
   end
 
 
+
   defp via(product_id) do
     {:via, Registry, {OrderBookRegistry, product_id}}
   end
@@ -47,70 +63,61 @@ end
 
 defmodule OrderBook.State do
   alias OrderBook.State
-
-  @type orderMap :: %{integer() => Order.t()}
-
-  @type t :: %{
-    orders: orderMap(),
-    bids: PriceLevel.t(),
-    asks: PriceLevel.t(),
+  @type t :: %__MODULE__{
+    bids: PriceLevels.t(),
+    asks: PriceLevels.t(),
   }
 
-  @enforce_keys [:bids, :asks, :orders]
-  defstruct [:bids, :asks, :orders]
-
-
+  defstruct [:bids, :asks]
 
   @spec new() :: t()
   def new do
     %{
-      orders:  %{},
-      bids: PriceLevel.new(),
-      asks: PriceLevel.new()
+      bids: PriceLevels.new(),
+      asks: PriceLevels.new()
     }
   end
+
+  def new(updates) when is_list(updates) do
+    apply_snapshot(new(), updates)
+  end
+
+  def apply_snapshot(order_book, updates) when is_list(updates) do
+    if updates == [] do
+      order_book
+    else
+      [update | remaining_updates] = updates
+      order_book
+      |> apply_update(update)
+      |> apply_snapshot(remaining_updates)
+    end
+  end
+
+  @spec apply_update(OrderBook.State.t(), Update.t()) :: nil
+  def apply_update(order_book, update) when is_struct(order_book, OrderBook.State) and is_struct(update, Update) do
+    add_order(order_book, Order.new(update))
+  end
+
 
 
   @spec add_order(OrderBook.State.t(), Order.t()) :: OrderBook.State.t()
   def add_order(order_book, order) do
-
-
-    order_book = put_in(order_book, [:orders, order.id], order)
     case order.side do
     :buy ->
-      %{order_book | bids: PriceLevel.add(order_book.bids, order)}
+      %{order_book | bids: PriceLevels.add(order_book.bids, order)}
     :sell ->
-      %{order_book | asks: PriceLevel.add(order_book.asks, order)}
+      %{order_book | asks: PriceLevels.add(order_book.asks, order)}
     _ ->
       {:error, :invalid_side}
     end
   end
 
-  @spec remove_order(State.t(), integer()) :: State.t()
-  def remove_order(orderBook, orderId) do
-
-    {_value, newMap} = Map.pop(orderBook, orderId)
-    newMap
-  end
-
-  @spec reduce_order(State.t(), integer(), float()) :: State.t()
-  def reduce_order(orderBook, orderId, amount) do
-    newOrderBook =
-      Map.update!(orderBook, orderId, fn order -> Order.decreaseQuantity(order, amount) end)
-
-    if Order.getQuantity(newOrderBook[orderId]) <= 0 do
-      remove_order(newOrderBook, orderId)
-    else
-      newOrderBook
-    end
-  end
-
   def get_bids(orderBook) do
-    PriceLevel.getBids(orderBook.bids)
+    PriceLevels.get_bids(orderBook.bids)
   end
 
   def get_asks(orderBook) do
-    PriceLevel.getAsks(orderBook.asks)
+    PriceLevels.get_asks(orderBook.asks)
   end
 
 end

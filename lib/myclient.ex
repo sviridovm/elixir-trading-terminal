@@ -93,7 +93,8 @@ defmodule Router do
 
   def dispatch(%{channel: "l2_data"} = data, product_id) do
     # OrderBooky.printUpdate(data)
-    IO.puts("Received message from #{product_id}")
+    # IO.puts("Received message from #{product_id}")
+
   end
 
   def dispatch(%{channel: "subscribe"} = data, product_id) do
@@ -163,7 +164,9 @@ defmodule Update do
           new_quantity: String.t()
         }
 
-  defstruct [:side, :event_time, :price_level, :new_quantity]
+  defstruct side: "", event_time: "", price_level: "", new_quantity: ""
+
+  defguard is_update(value) when is_struct(value, __MODULE__)
 end
 
 defmodule APIEvent do
@@ -173,7 +176,7 @@ defmodule APIEvent do
           updates: [Update.t()]
         }
 
-  defstruct [:type, :product_id, :updates]
+  defstruct [:type , :product_id, :updates]
 end
 
 defmodule APIResponse do
@@ -239,27 +242,3 @@ defmodule ReadOnce do
     Process.sleep(:infinity)
   end
 end
-
-
-
-# Run the application
-# TermUI.Runtime.run(root: Counter)
-
-# defmodule Test do
-#   def run do
-#     pp = ProductPrice.start("1")
-#     # y = ProductPrice.start(5)
-
-#     ProductPrice.read(pp) |> IO.puts()
-
-#     ProductPrice.update(pp, "bid", %Order{quantity: 100, price: 10.0})
-#     ProductPrice.readBid(pp) |> IO.inspect()
-
-#     ProductPrice.update(pp, "bid", %Order{quantity: 200, price: 5.0})
-#     ProductPrice.readBid(pp) |> IO.inspect()
-#   end
-# end
-
-# Test.run()
-
-# ProductPrice.read(y) |> IO.puts

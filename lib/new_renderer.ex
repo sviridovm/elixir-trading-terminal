@@ -16,9 +16,11 @@ defmodule Depth.Chart do
 
   @impl true
   def view(model, frame) do
-    orderbook = TestRender.getTestOB()
-    bids = OrderBook.getBids(orderbook)
-    asks = OrderBook.getAsks(orderbook)
+    # orderbook = TestRender.getTestOB()
+
+    # orderbook = OrderBook
+    bids = OrderBook.get_bids("ETH-USD")
+    asks = OrderBook.get_asks("ETH-USD")
 
     # IO.inspect(bids)
 
@@ -28,8 +30,8 @@ defmodule Depth.Chart do
           Dataset.new(bids, name: "bids", graph_type: :line, style: [fg: :cyan]),
           Dataset.new(asks, name: "asks", graph_type: :line, style: [fg: :green])
         ],
-        x_axis: Axis.new(title: "Price", bounds: {0.0, 10.0}),
-        y_axis: Axis.new(title: "Quantity", bounds: {0.0, 100.0}),
+        x_axis: Axis.new(title: "Price", bounds: {0.0, 1000.0}),
+        y_axis: Axis.new(title: "Quantity", bounds: {0.0, 10000.0}),
         block: Block.bordered(title: "Chart", title_bottom: "q to quit")
       )
 

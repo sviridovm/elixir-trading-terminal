@@ -1,20 +1,33 @@
 defmodule Order do
-  use Agent
-  @type orderSide :: :buy | :sell
+  @type order_side :: :buy | :sell
 
   @type t :: %__MODULE__{
           id: integer(),
           price: float(),
-          quantity: integer(),
-          side: orderSide()
+          quantity: float(),
+          side: order_side()
         }
 
   @enforce_keys [:id, :price, :quantity, :side]
   defstruct [:id, :price, :quantity, :side]
 
-  defguard is_order(value) when is_map(value) and value.__struct__ == Order
+  defguard is_order(value) when is_struct(value, Order)
 
-  @spec new(float(), integer(), orderSide()) :: Order.t()
+  @spec new(Update.t()) :: Order.t()
+  def new(update) when is_struct(update, Update) do
+    %Order{
+      id: GlobalCounter.getNewID(),
+      price: String.to_float(update.price_level),
+      quantity: String.to_float(update.new_quantity),
+      side: to_order_side(update.side),
+    }
+  end
+
+  @spec to_order_side(binary()) :: order_side()
+  defp to_order_side("bid"), do: :buy
+  defp to_order_side("offer"), do: :sell
+
+  @spec new(float(), integer(), order_side()) :: Order.t()
   def new(price, quantity, side) do
     id = GlobalCounter.getNewID()
     %Order{id: id, price: price, quantity: quantity, side: side}

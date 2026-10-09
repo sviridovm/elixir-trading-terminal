@@ -26,9 +26,9 @@ defmodule Test.MixProject do
       # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
       {:websockex, "~> 0.5.1"},
       {:jason, "~> 1.4"},
-      {:term_ui, "~> 1.0"},
+      # {:term_ui, "~> 1.0"},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:heap, "~> 3.0"},
+      # {:heap, "~> 3.0"},
       {:elui, github: "douglascorrea/elui"}
 
     ]
