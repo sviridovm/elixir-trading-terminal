@@ -3,27 +3,62 @@ defmodule CoinbaseClient do
 
   @url "wss://advanced-trade-ws.coinbase.com"
 
-  def start_link(product_id) do
-    WebSockex.start_link(@url, __MODULE__, %{product_id: product_id}, name: via(product_id))
+  def start_link(_)
+  do
+    IO.puts("Starting websockex process")
+    WebSockex.start_link(@url, __MODULE__, %{subscriptions: MapSet.new(), pending: [], connected: false}, name: __MODULE__,   debug: [:trace]
+)
+  end
+
+
+  defp add_product(product_id)
+    when is_binary(product_id)
+  do
+    WebSockex.cast(__MODULE__, {:add_product_id, product_id})
+  end
+  def start_subscription(product_id)
+    when is_binary(product_id)
+  do
+    add_product(product_id)
+  end
+
+  @impl true
+  def handle_info(_msg, state) do
+    {:ok, state}
+  end
+
+  defp send_subscription_message(product_id)
+    when is_binary(product_id)
+  do
+    # IO.puts("sending subscription message for #{product_id}")
+    sub_msg = CoinbaseClient.Messages.Subscribe.subscribe_message(product_id)
+    send_message(sub_msg)
   end
 
   @impl true
   def handle_connect(_conn, state) do
-    product_id = Map.get(state, :product_id)
-    sub_msg = CoinbaseClient.Messages.Subscribe.subscribe_message(product_id)
-    send_message(sub_msg, product_id)
+    state = %{state | connected: true}
+    Enum.each(state.pending, fn product_id ->
+      send_subscription_message(product_id)
+    end)
 
-    {:ok, state}
+    subscriptions =
+      Enum.reduce(state.pending, state.subscriptions, fn product_id, acc ->
+        MapSet.put(acc, product_id)
+      end)
+
+    {:ok, %{state | connected: true, pending: [], subscriptions: subscriptions}}
   end
 
   @impl true
   def handle_frame({:text, msg}, state) do
-    # IO.puts("Got: #{msg}")
-    # IO.puts("trying")
+    IO.puts("Got message")
+
     msg
     |> Jason.decode!(keys: :atoms)
-    |> Router.dispatch(Map.get(state, :product_id))
+    |> Router.dispatch()
 
+    IO.puts(msg)
 
     {:ok, state}
   end
@@ -39,26 +74,45 @@ defmodule CoinbaseClient do
     {:reply, frame, state}
   end
 
-  def send_message(msg, product_id) when is_binary(msg) and is_binary(product_id) do
-    case Registry.lookup(CoinbaseClient.Registry, product_id) do
-    [{pid, _}] ->
-        WebSockex.cast(pid, {:send, {:text, msg}})
-    [] ->
-      {:error, :not_found}
-    end
+  # @impl true
+  # def handle_cast({:add_product_id, product_id}, %{connected: false} = state) do
+  #   {:ok, %{state | pending: state.pending ++ [product_id]}}
+  # end
+
+  @impl true
+  def handle_cast({:add_product_id, product_id}, %{connected: true} = state) do
+    send_subscription_message(product_id)
+    {:ok, %{state | subscriptions: MapSet.put(state.subscriptions, product_id)}}
+  end
+
+  @spec send_message(binary()) :: :ok
+  def send_message(msg) when is_binary(msg) do
+    WebSockex.cast(__MODULE__, {:send, {:text, msg}})
   end
 
   @impl true
-  def terminate(_close_reason, state) do
-    product_id = Map.get(state, :product_id)
-    unsub_msg = CoinbaseClient.Messages.Unsubscribe.message(product_id)
-    send_message(unsub_msg, product_id)
-
+  def handle_disconnect(info, state) do
+    IO.inspect(info, label: "WEBSOCKET DISCONNECTED")
+    {:ok, %{state | connected: false}}
   end
 
-  defp via(product_id) do
-    {:via, Registry, {CoinbaseClient.Registry, product_id}}
+
+  @impl true
+  def terminate(close_reason, state) do
+    IO.puts("Stopping #{__MODULE__} because of #{close_reason}")
+    IO.inspect(close_reason, label: "WEBSOCKET TERMINATING")
+    IO.inspect(state, label: "FINAL STATE")
+
+    state.subscriptions
+    |> Enum.each(
+      fn product_id ->
+        unsub_msg = CoinbaseClient.Messages.Unsubscribe.message(product_id)
+        send_message(unsub_msg)
+      end
+      )
+    :ok
   end
+
 
 end
 
@@ -86,75 +140,67 @@ defmodule OrderBooky do
   end
 end
 
+defmodule APIEvent do
+  @type t :: %__MODULE__{
+          type: String.t(),
+          product_id: String.t(),
+          updates: [Update.t()]
+        }
+
+  def new(data) do
+    %{
+      data |
+      updates: Enum.map(data[:updates] || [], &Update.new/1)
+    }
+    |> struct!(APIEvent)
+
+  end
+
+  defguard is_api_event(value) when is_struct(value, __MODULE__)
+
+  defstruct [:type , :product_id, :updates]
+end
 
 
 defmodule Router do
   require Logger
+  require APIEvent
+  defp process_events([]), do: :ok
 
-  def dispatch(%{channel: "l2_data"} = data, product_id) do
-    # OrderBooky.printUpdate(data)
-    # IO.puts("Received message from #{product_id}")
+  defp process_events([event | rest])
+    when APIEvent.is_api_event(event)
+  do
+    case event.type do
+      "update"  -> OrderBook.apply_update(event.product_id, event.updates)
+      "snapshot" -> OrderBook.apply_snapshot(event.product_id, event.updates)
+    end
 
+    process_events(rest)
   end
 
-  def dispatch(%{channel: "subscribe"} = data, product_id) do
+
+  def dispatch(%{channel: "l2_data"} = data) do
+    # OrderBooky.printUpdate(data)
+    # IO.puts("Received message from #{product_id}")
+    # data = struct!(APIResponse, data)
+    data = APIResponse.new(data)
+    process_events(data.events)
+  end
+
+  def dispatch(%{channel: "subscribe"} = data) do
     IO.puts("Subscribe message!")
     IO.inspect(data)
   end
 
-  def dispatch(%{channel: "subscriptions"} = data, product_id) do
+  def dispatch(%{channel: "subscriptions"} = data) do
     IO.inspect("Subscriptions Message!")
     IO.inspect(data)
   end
 
-  def dispatch(data, product_id) do
+  def dispatch(data) do
     Logger.warning("Unknown channel #{inspect(data)}")
   end
 end
-
-# defmodule ProductPrice do
-#   require Order
-
-#   @type t :: %__MODULE__{
-#           product_id: String.t(),
-#           bid_side: Agent.agent(),
-#           sell_side: Agent.agent()
-#         }
-
-#   defstruct [:product_id, :bid_side, :sell_side]
-
-#   defguard is_productprice(value) when is_map(value) and value.__struct__ == ProductPrice
-
-#   @spec start(String.t()) :: ProductPrice.t()
-#   def start(product_id) when is_binary(product_id) do
-#     # {:ok, bid_side_pid} = Agent.start_link(fn -> %Order{} end)
-#     # {:ok, sell_side_pid} = Agent.start_link(fn -> %Order{} end)
-#     # :persistent_term.put({:ProductPrice, :product_id}, product_id)
-
-#     # %__MODULE__{product_id: product_id, bid_side: bid_side_pid, sell_side: sell_side_pid}
-#   end
-
-#   @spec read(ProductPrice.t()) :: String.t()
-#   def read(%__MODULE__{} = pp) do
-#     # :persistent_term.get({:ProductPrice, :product_id})
-#     pp.product_id
-#   end
-
-#   @spec update(ProductPrice.t(), String.t(), Order.t()) :: ProductPrice.t()
-#   def update(%__MODULE__{} = pp, side, order)
-#       when is_productprice(pp) and is_binary(side) and Order.is_order(order) do
-#     cond do
-#       side == "bid" -> Agent.update(pp.bid_side, fn state -> order end)
-#       side == "offer" -> Agent.update(pp.sell_side, fn state -> order end)
-#     end
-
-#     pp
-#   end
-
-#   def readBid(%__MODULE__{} = pp) do
-#     Agent.get(pp.bid_side, fn state -> state end)
-#   end
-# end
 
 defmodule Update do
   @type t :: %__MODULE__{
@@ -167,17 +213,14 @@ defmodule Update do
   defstruct side: "", event_time: "", price_level: "", new_quantity: ""
 
   defguard is_update(value) when is_struct(value, __MODULE__)
+
+  def new(data) do
+    struct!(Update, data)
+  end
+
+
 end
 
-defmodule APIEvent do
-  @type t :: %__MODULE__{
-          type: String.t(),
-          product_id: String.t(),
-          updates: [Update.t()]
-        }
-
-  defstruct [:type , :product_id, :updates]
-end
 
 defmodule APIResponse do
   @type t :: %__MODULE__{
@@ -188,6 +231,15 @@ defmodule APIResponse do
         }
 
   defstruct [:channel, :timestamp, :sequence_num, :events]
+
+  def new(data) do
+    %{
+      data |
+      events: Enum.map(data[:events] || [], &APIEvent.new/1)
+    }
+    |> struct!(APIResponse)
+  end
+
 
   def print_channel(%APIResponse{} = response) do
     # Enum.each(events, IO.puts/1)
@@ -201,9 +253,9 @@ defmodule CoinbaseClient.Messages.Subscribe do
     Jason.encode!(Map.put(base_message(), :product_ids, [product_id]))
   end
 
-  def subscribe_message(product_ids) when is_list(product_ids) do
-    Jason.encode!(Map.put(base_message(), :product_ids, product_ids))
-  end
+  # def subscribe_message(product_ids) when is_list(product_ids) do
+    # Jason.encode!(Map.put(base_message(), :product_ids, product_ids))
+  # end
 
   defp base_message do
     %{
@@ -226,19 +278,4 @@ defmodule CoinbaseClient.Messages.Unsubscribe do
     }
   end
 
-end
-
-
-
-
-defmodule ReadOnce do
-  def read do
-    msg = CoinbaseClient.Messages.Subscribe.subscribe_message("ETH-USD")
-
-    {:ok, pid} = CoinbaseClient.start_link()
-
-    WebSockex.cast(pid, {:send, {:text, msg}})
-
-    Process.sleep(:infinity)
-  end
 end

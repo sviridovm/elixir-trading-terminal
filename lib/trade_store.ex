@@ -12,7 +12,7 @@ defmodule TradeStore.Agent do
   end
 
   defp via(product_id) do
-      {:via, Registry, {TradeStoreRegistry, product_id}}
+      {:via, Registry, {TradeStore.Registry, product_id}}
   end
 
   def add_trade(product_id, trade) do

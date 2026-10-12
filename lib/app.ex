@@ -4,12 +4,12 @@ defmodule OrderBook.Application do
   @impl true
   def start(_start_type, _start_args) do
     children = [
-      {GlobalCounter.Supervisor, []},
-      {Registry, keys: :unique, name: OrderBookRegistry},
-      {Registry, keys: :unique, name: CoinbaseClient.Registry},
-      {Registry, keys: :unique, name: TradeStoreRegistry},
-      {Registry, keys: :unique, name: ProductRegistry},
+      # {GlobalCounter.Supervisor, []},
+      {Registry, keys: :unique, name: OrderBook.Registry},
+      {Registry, keys: :unique, name: TradeStore.Registry},
+      {Registry, keys: :unique, name: Product.Registry},
       {ProductSupervisor.Dynamic, []},
+      {CoinbaseClient.Supervisor, []}
     ]
 
     IO.puts("Starting #{__MODULE__}!")
@@ -18,6 +18,15 @@ defmodule OrderBook.Application do
   end
 end
 
+
+defmodule Product.Registry do
+end
+
+defmodule OrderBook.Registry do
+end
+
+defmodule TradeStore.Registry do
+end
 
 
 defmodule GlobalCounter.Supervisor do
@@ -38,6 +47,30 @@ defmodule GlobalCounter.Supervisor do
 
 end
 
+
+defmodule CoinbaseClient.Supervisor do
+  use Supervisor
+
+  def start_link(_) do
+    Supervisor.start_link(__MODULE__, :ok, name: __MODULE__)
+  end
+
+  @impl true
+  def init(:ok) do
+    children = [
+      {CoinbaseClient, []}
+    ]
+
+    Supervisor.init(children, strategy: :one_for_all)
+
+  end
+end
+
+
+
+
+
+
 defmodule ProductSupervisor.Dynamic do
   use DynamicSupervisor
 
@@ -55,14 +88,22 @@ defmodule ProductSupervisor.Dynamic do
   end
 
   def start_product(product_id) do
-    DynamicSupervisor.start_child(
-      __MODULE__,
-      {ProductSupervisor, product_id}
-    )
+  case DynamicSupervisor.start_child(
+    __MODULE__,
+    {ProductSupervisor, product_id}
+  ) do
+    {:ok, _pid} ->
+      CoinbaseClient.start_subscription(product_id)
+      :ok
+
+    {:error, reason} ->
+      {:error, reason}
   end
+end
+
 
   def stop_product(product_id) do
-  case Registry.lookup(ProductRegistry, product_id) do
+  case Registry.lookup(Product.Registry, product_id) do
     [{pid, _}] ->
       DynamicSupervisor.terminate_child(ProductSupervisor, pid)
 
@@ -89,7 +130,7 @@ defmodule ProductSupervisor do
     children = [
       {OrderBook, product_id},
       {TradeStore.Agent, product_id},
-      {CoinbaseClient, product_id}
+      # {CoinbaseClient, product_id}
     ]
 
     Supervisor.init(children, strategy: :one_for_all)
@@ -97,7 +138,7 @@ defmodule ProductSupervisor do
 
 
   defp via(product_id) do
-    {:via, Registry, {ProductRegistry, product_id}}
+    {:via, Registry, {Product.Registry, product_id}}
   end
 
 
@@ -157,37 +198,6 @@ defmodule OrderBook.Supervisor do
       __MODULE__,
       {OrderBook, product_id}
     )
-  end
-
-
-end
-
-
-defmodule CoinbaseClient.Supervisor do
-  use DynamicSupervisor
-
-  def start_link(_) do
-    DynamicSupervisor.start_link(
-      __MODULE__,
-      :ok,
-      name: __MODULE__
-    )
-  end
-
-  @impl true
-  def init(:ok) do
-    DynamicSupervisor.init(strategy: :one_for_one)
-  end
-
-
-  def start_connection(product_id) do
-    DynamicSupervisor.start_child(
-      __MODULE__,
-      {CoinbaseClient, product_id}
-    )
-
-
-
   end
 
 
