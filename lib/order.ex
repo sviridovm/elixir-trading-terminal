@@ -17,11 +17,21 @@ defmodule Order do
   def new(update) when is_struct(update, Update) do
     %Order{
       id: GlobalCounter.getNewID(),
-      price: String.to_float(update.price_level),
-      quantity: String.to_float(update.new_quantity),
+      price: parse_float(update.price_level),
+      quantity: parse_float(update.new_quantity),
       side: to_order_side(update.side),
     }
   end
+
+  def parse_float(float)
+    when is_binary(float)
+  do
+    case Float.parse(float) do
+      {float, _} -> float
+      :error -> raise("Cannot convert float")
+    end
+  end
+
 
   @spec to_order_side(binary()) :: order_side()
   defp to_order_side("bid"), do: :buy

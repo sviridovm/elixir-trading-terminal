@@ -26,7 +26,7 @@ defmodule PriceLevels do
     and Order.is_order(order)
     and order.quantity == 0
   do
-    %{price_levels | tree: remove_price_level(price_levels, order.price)}
+    remove_price_level(price_levels, order.price)
   end
 
   @spec add(t(), Order.t()) :: t()

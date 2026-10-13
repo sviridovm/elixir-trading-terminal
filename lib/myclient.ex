@@ -6,8 +6,10 @@ defmodule CoinbaseClient do
   def start_link(_)
   do
     IO.puts("Starting websockex process")
-    WebSockex.start_link(@url, __MODULE__, %{subscriptions: MapSet.new(), pending: [], connected: false}, name: __MODULE__,   debug: [:trace]
-)
+    WebSockex.start_link(@url, __MODULE__, %{subscriptions: MapSet.new(), pending: [], connected: false},
+    name: __MODULE__
+    #  debug: [:trace]
+    )
   end
 
 
@@ -52,13 +54,10 @@ defmodule CoinbaseClient do
 
   @impl true
   def handle_frame({:text, msg}, state) do
-    IO.puts("Got message")
-
     msg
     |> Jason.decode!(keys: :atoms)
     |> Router.dispatch()
 
-    IO.puts(msg)
 
     {:ok, state}
   end
@@ -116,29 +115,7 @@ defmodule CoinbaseClient do
 
 end
 
-defmodule OrderBooky do
-  def printUpdate(msg) do
 
-    parsed_msg = struct!(APIResponse, msg)
-    events = parsed_msg.events
-
-    Enum.each(events, fn event ->
-
-      case event.type do
-        "update" -> IO.inspect(event)
-        "snapshot" ->
-          IO.puts("--------\n")
-          IO.puts("Snapshot Update")
-          IO.inspect(event)
-          IO.puts("--------\n")
-            _ -> :error
-      end
-
-
-    end)
-
-  end
-end
 
 defmodule APIEvent do
   @type t :: %__MODULE__{
@@ -152,54 +129,12 @@ defmodule APIEvent do
       data |
       updates: Enum.map(data[:updates] || [], &Update.new/1)
     }
-    |> struct!(APIEvent)
-
+    |> then(&struct!(APIEvent, &1))
   end
 
   defguard is_api_event(value) when is_struct(value, __MODULE__)
 
   defstruct [:type , :product_id, :updates]
-end
-
-
-defmodule Router do
-  require Logger
-  require APIEvent
-  defp process_events([]), do: :ok
-
-  defp process_events([event | rest])
-    when APIEvent.is_api_event(event)
-  do
-    case event.type do
-      "update"  -> OrderBook.apply_update(event.product_id, event.updates)
-      "snapshot" -> OrderBook.apply_snapshot(event.product_id, event.updates)
-    end
-
-    process_events(rest)
-  end
-
-
-  def dispatch(%{channel: "l2_data"} = data) do
-    # OrderBooky.printUpdate(data)
-    # IO.puts("Received message from #{product_id}")
-    # data = struct!(APIResponse, data)
-    data = APIResponse.new(data)
-    process_events(data.events)
-  end
-
-  def dispatch(%{channel: "subscribe"} = data) do
-    IO.puts("Subscribe message!")
-    IO.inspect(data)
-  end
-
-  def dispatch(%{channel: "subscriptions"} = data) do
-    IO.inspect("Subscriptions Message!")
-    IO.inspect(data)
-  end
-
-  def dispatch(data) do
-    Logger.warning("Unknown channel #{inspect(data)}")
-  end
 end
 
 defmodule Update do
@@ -209,15 +144,16 @@ defmodule Update do
           price_level: String.t(),
           new_quantity: String.t()
         }
-
-  defstruct side: "", event_time: "", price_level: "", new_quantity: ""
+  @enforce_keys [:side, :event_time, :price_level, :new_quantity]
+  defstruct [:side, :event_time, :price_level, :new_quantity]
 
   defguard is_update(value) when is_struct(value, __MODULE__)
 
-  def new(data) do
+  def new(data)
+    when is_map(data)
+  do
     struct!(Update, data)
   end
-
 
 end
 
@@ -230,6 +166,7 @@ defmodule APIResponse do
           events: [APIEvent.t()]
         }
 
+  @enforce_keys [:channel, :timestamp, :sequence_num, :events]
   defstruct [:channel, :timestamp, :sequence_num, :events]
 
   def new(data) do
@@ -237,15 +174,47 @@ defmodule APIResponse do
       data |
       events: Enum.map(data[:events] || [], &APIEvent.new/1)
     }
-    |> struct!(APIResponse)
-  end
-
-
-  def print_channel(%APIResponse{} = response) do
-    # Enum.each(events, IO.puts/1)
-    IO.puts(response.channel)
+    |> then(&struct!(APIResponse, &1))
   end
 end
+
+defmodule Router do
+  require Logger
+  require APIEvent
+  defp process_events([]), do: :ok
+
+  defp process_events([event | rest])
+    when APIEvent.is_api_event(event)
+  do
+    case event.type do
+      "update"  -> OrderBook.apply_updates(event.product_id, event.updates)
+      "snapshot" -> OrderBook.apply_snapshot(event.product_id, event.updates)
+    end
+
+    process_events(rest)
+  end
+
+
+  def dispatch(%{channel: "l2_data"} = data) do
+    data = APIResponse.new(data)
+    process_events(data.events)
+  end
+
+  def dispatch(%{channel: "subscribe"} = _data) do
+  #   IO.puts("Subscribe message!")
+  #   IO.inspect(data)
+  end
+
+  def dispatch(%{channel: "subscriptions"} = _data) do
+  #   IO.inspect("Subscriptions Message!")
+  #   IO.inspect(data)
+  end
+
+  def dispatch(data) do
+    Logger.warning("Unknown channel #{inspect(data)}")
+  end
+end
+
 
 
 defmodule CoinbaseClient.Messages.Subscribe do

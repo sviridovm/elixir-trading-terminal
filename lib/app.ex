@@ -4,15 +4,17 @@ defmodule OrderBook.Application do
   @impl true
   def start(_start_type, _start_args) do
     children = [
-      # {GlobalCounter.Supervisor, []},
+      {GlobalCounter.Supervisor, []},
       {Registry, keys: :unique, name: OrderBook.Registry},
       {Registry, keys: :unique, name: TradeStore.Registry},
       {Registry, keys: :unique, name: Product.Registry},
       {ProductSupervisor.Dynamic, []},
-      {CoinbaseClient.Supervisor, []}
+      {CoinbaseClient.Supervisor, []},
+      {UI.Starter, []}
     ]
 
     IO.puts("Starting #{__MODULE__}!")
+
 
     Supervisor.start_link(children, strategy: :one_for_one)
   end
@@ -28,6 +30,24 @@ end
 defmodule TradeStore.Registry do
 end
 
+defmodule UI.Starter do
+  use GenServer
+
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  @impl true
+  def init(opts) do
+    {:ok, opts, {:continue, :start_ui}}
+  end
+
+  @impl true
+  def handle_continue(:start_ui, state) do
+    Elui.App.run(UI)
+    {:noreply, state}
+  end
+end
 
 defmodule GlobalCounter.Supervisor do
   use Supervisor

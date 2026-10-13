@@ -30,7 +30,7 @@ defmodule UI.ProductPage do
       model
     else
       product_id_to_del = Enum.at(product_ids, model.selected)
-      IO.puts(product_id_to_del)
+      # IO.puts(product_id_to_del)
       ProductSupervisor.Dynamic.stop_product(product_id_to_del)
       %{model | selected: min(model.selected, max(length(product_ids) - 1, 0))}
     end

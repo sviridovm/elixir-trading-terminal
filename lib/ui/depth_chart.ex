@@ -19,15 +19,11 @@ defmodule UI.DepthChart do
     render_depth_chart(frame, area, model.product_id)
   end
 
-  defp render_depth_chart(frame, _area, "" = _product_id), do: frame
+  defp render_depth_chart(frame, _area, _product_id, [] = _bids, _asks), do: frame
+  defp render_depth_chart(frame, _area, _product_id, _bids, [] =  _asks), do: frame
 
-  defp render_depth_chart(frame, area, product_id) do
-
-    bids = OrderBook.get_bids(product_id)
-    asks = OrderBook.get_asks(product_id)
-
-    bids = Enum.take(bids, 200)
-    asks = Enum.take(asks, 200)
+  defp render_depth_chart(frame, area, product_id, bids, asks)
+  do
 
     {best_bid, _} = List.first(bids, {0, 0})
     {best_ask, _} = List.first(asks, {0, 0})
@@ -63,6 +59,15 @@ defmodule UI.DepthChart do
 
     frame = Frame.render_widget(frame, chart, area)
     frame
+
+  end
+
+  defp render_depth_chart(frame, _area, "" = _product_id), do: frame
+
+  defp render_depth_chart(frame, area, product_id) do
+    bids = OrderBook.get_bids(product_id) |> Enum.take(200)
+    asks = OrderBook.get_asks(product_id) |> Enum.take(200)
+    render_depth_chart(frame, area, product_id, bids, asks)
   end
 
   defp evenly_spaced(first, last, count) do

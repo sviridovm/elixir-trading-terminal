@@ -40,7 +40,7 @@ defmodule OrderBook do
     :ok
   end
 
-  def apply_updates(product_id, [update, rest])
+  def apply_updates(product_id, [update | rest])
     when Update.is_update(update)
   do
     apply_update(product_id, update)
