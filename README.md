@@ -1,16 +1,16 @@
 # Compilation
 
 ```bash
-mix compile.deps
-mix compile
+mix deps.get
 ```
 
 ## Running
 
 ```bash
-iex -S mix
+mix run --no-halt
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/test>.
+## Examples
+
+### Depth Chart
+[![Depth Chart Image](assets/depth-chart.png)]
